@@ -1,4 +1,3 @@
-
 import requests
 import urllib3
 import re
@@ -6,6 +5,7 @@ import time
 import random
 import argparse
 import sys
+import threading
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -64,14 +64,51 @@ def parse_arguments():
     parser.add_argument("-l", "--limit", type=int, default=None, help="Limit the number of tests to run")
     parser.add_argument("-o", "--output", help="Specify a custom output file for results")
     
+    # Check for no arguments or incorrect usage
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
     
-    return parser.parse_args()
+    try:
+        args = parser.parse_args()
+    except Exception as e:
+        print(f"\nError: {e}")
+        parser.print_help()
+        sys.exit(1)
+    
+    return args
+
+# Progress dots function running in a separate thread
+def progress_dots():
+    dot_count = 0
+    max_dots = 5
+    while spinner_active:
+        dots = '.' * dot_count
+        # Clear the line before printing to avoid overlapping text
+        print(f"\r{' ' * 50}", end='')  # Clear line
+        print(f"\r{Fore.YELLOW}Processing{dots}{' ' * (max_dots - dot_count)}{Style.RESET_ALL}", end='', flush=True)
+        time.sleep(0.5)
+        dot_count = (dot_count + 1) % (max_dots + 1)
+
+# Function to start the progress dots animation
+def start_spinner():
+    global spinner_active, spinner_thread
+    spinner_active = True
+    spinner_thread = threading.Thread(target=progress_dots)
+    spinner_thread.start()
+
+# Function to stop the progress dots animation
+def stop_spinner():
+    global spinner_active
+    spinner_active = False
+    spinner_thread.join()
 
 # Main code execution
-args = parse_arguments()
+try:
+    args = parse_arguments()
+except SystemExit:
+    sys.exit(1)
+
 login_url = args.url
 hydra_output_file = args.file
 test_limit = args.limit
@@ -102,8 +139,11 @@ with open(hydra_output_file, "r") as file:
 if test_limit:
     credentials = credentials[:test_limit]
 
-# Spinner for status processing indicator
-spinner = cycle(["|", "/", "-", "\\"])
+# Ensure spinner variables are defined
+spinner_active = False
+spinner_thread = None
+current_username = ""
+current_password = ""
 
 # Initialize counters and lists
 total_tests = 0
@@ -114,7 +154,12 @@ success_logins = []
 
 # Function to validate credentials with retry mechanism and persistent session
 def validate_credentials(username, password, session):
-    global total_tests, success_count, failure_count, connection_error_count
+    global total_tests, success_count, failure_count, connection_error_count, current_username, current_password
+    
+    # Set the current credentials for spinner display
+    current_username = username
+    current_password = password
+
     payload = {
         'log': username,
         'pwd': password,
@@ -131,18 +176,23 @@ def validate_credentials(username, password, session):
         response = session.post(login_url, data=payload, headers=headers, timeout=10, verify=False)
         total_tests += 1
         
+        # Clear the line before displaying the result
+        print(f"\r{' ' * 50}", end='')  # Clear line
+
         if "dashboard" in response.text.lower():
             success_count += 1
             success_logins.append((username, password))
-            print(f"\r{Fore.GREEN}Testing {username}:{password} - Success {Style.RESET_ALL}{next(spinner)}", end='', flush=True)
+            print(f"\r{Fore.GREEN}Testing {username}:{password} - Success {Style.RESET_ALL}", end='', flush=True)
             return "Success"
         else:
             failure_count += 1
-            print(f"\r{Fore.RED}Testing {username}:{password} - Failed {Style.RESET_ALL}{next(spinner)}", end='', flush=True)
+            print(f"\r{Fore.RED}Testing {username}:{password} - Failed {Style.RESET_ALL}", end='', flush=True)
             return "Failed"
     except requests.exceptions.ConnectionError:
         connection_error_count += 1
-        print(f"\r{Fore.YELLOW}Testing {username}:{password} - Connection aborted. Retrying... {Style.RESET_ALL}{next(spinner)}", end='', flush=True)
+        print(f"\r{' ' * 50}", end='')  # Clear line
+        print(f"\r{Fore.YELLOW}Testing {username}:{password} - Connection aborted. Retrying... {Style.RESET_ALL}", end='', flush=True)
+        time.sleep(1)  # Wait before retrying
         return "Connection Error"
 
 # Set up a retry strategy
@@ -153,20 +203,19 @@ retry_strategy = Retry(
 )
 adapter = HTTPAdapter(max_retries=retry_strategy)
 
+# Start the spinner once before starting tests
+start_spinner()
+
 # Use a session with the retry strategy and persistent connection
 with requests.Session() as session:
     session.mount("https://", adapter)
     with open(output_file, "w") as f:
         f.write("WordPress Credential Validation Script Results\n")
-        f.write(f"Target URL: {login_url}\n")
-        f.write(f"Hydra Output File: {hydra_output_file}\n")
-        f.write(f"Test Date: {datetime.now()}\n")
-        f.write("\n" + "="*40 + "\n")
-
+        
         for cred in credentials:
             status = validate_credentials(cred["username"], cred["password"], session)
             f.write(f"Tested {cred['username']}:{cred['password']} - Status: {status}\n")
-            time.sleep(random.uniform(5, 10))
+            time.sleep(random.uniform(5, 10))  # Wait between tests
 
         f.write("\n" + "="*40 + "\n")
         f.write(f"Total Tests Attempted: {total_tests}\n")
@@ -180,10 +229,12 @@ with requests.Session() as session:
                 f.write(f"Username: {username} Password: {password}\n")
             f.write("="*40 + "\n")
 
+# Stop the spinner after all tests are complete
+stop_spinner()
+
 # Display message with output file path
 print(f"\n{Fore.CYAN}Results saved to {output_file}{Style.RESET_ALL}\n")
 
 # Read and display the output file contents for direct viewing
 with open(output_file, "r") as f:
-    print(f"{Fore.CYAN}Displaying results from {output_file}:{Style.RESET_ALL}\n")
     print(f.read())
