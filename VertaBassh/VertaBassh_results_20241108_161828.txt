@@ -1,0 +1,11 @@
+WordPress Credential Validation Script Results
+Target URL: https://example.com/wp-login.php
+Hydra Output File: /home/kali/hydra_output.txt
+Test Date: 2024-11-08 16:18:36.626362
+
+========================================
+Total Tests Attempted: 1
+Successful Logins: 0
+Failed Logins: 1
+Connection Errors: 0
+========================================
