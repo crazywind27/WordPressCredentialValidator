@@ -1,0 +1,35 @@
+# Generated credential validation outputs
+results/
+VertaBassh_results_*.txt
+*_results_*.txt
+output_log.txt
+
+# Input files that may contain credentials
+hydra*.txt
+*hydra*.log
+credentials*.txt
+passwords*.txt
+wordlist*.txt
+
+# Local secrets and environment
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
